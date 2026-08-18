@@ -24,7 +24,7 @@ type Settings struct {
 // DefaultSettings returns factory defaults.
 func DefaultSettings() Settings {
 	return Settings{
-		Animations:    true,
+		Animations:    false,
 		LaunchAtLogin: false,
 		SelectedPack:  DefaultPackName,
 	}

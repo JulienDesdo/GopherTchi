@@ -41,6 +41,8 @@ type App struct {
 	reloadItem    *systray.MenuItem
 	animItem      *systray.MenuItem
 	loginItem     *systray.MenuItem
+
+	packCancel context.CancelFunc
 }
 
 // New prepares configuration, packs, and runtime state.
@@ -109,8 +111,8 @@ func (a *App) OnReady() {
 	quitItem := systray.AddMenuItem("Quit", "Exit GopherTchi")
 
 	a.refreshIcon(a.getMood())
+	a.startMenuHandlers()
 
-	go a.watchMenu()
 	go a.runAnimationLoop()
 	go a.pollMetrics(cpuItem, ramItem, diskItem, moodItem)
 	go func() {
@@ -149,8 +151,6 @@ func (a *App) reloadCatalog() error {
 
 func (a *App) rebuildPackMenu() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	for _, item := range a.packItems {
 		item.Hide()
 	}
@@ -169,63 +169,61 @@ func (a *App) rebuildPackMenu() {
 		a.openPacksItem = a.packMenu.AddSubMenuItem("Open Packs Folder", "Open ~/Library/Application Support/GopherTchi/packs")
 		a.reloadItem = a.packMenu.AddSubMenuItem("Reload Packs", "Rescan and reload pack assets")
 	}
+	a.mu.Unlock()
+
+	a.startPackWatchers()
 }
 
-func (a *App) watchMenu() {
-	for {
-		a.drainClicks()
-		time.Sleep(50 * time.Millisecond)
+// startMenuHandlers launches blocking ClickedCh listeners for fixed menu items.
+func (a *App) startMenuHandlers() {
+	go a.watchClicks(a.animItem, a.toggleAnimations)
+	go a.watchClicks(a.loginItem, a.toggleLaunchAtLogin)
+	go a.watchClicks(a.openPacksItem, a.openPacksFolder)
+	go a.watchClicks(a.reloadItem, a.handleReloadPacks)
+	a.startPackWatchers()
+}
+
+func (a *App) watchClicks(item *systray.MenuItem, handler func()) {
+	if item == nil {
+		return
+	}
+	for range item.ClickedCh {
+		handler()
 	}
 }
 
-func (a *App) drainClicks() {
-	a.mu.RLock()
-	packItems := make(map[string]*systray.MenuItem, len(a.packItems))
+// startPackWatchers cancels previous pack listeners and blocks on the current pack items.
+func (a *App) startPackWatchers() {
+	a.mu.Lock()
+	if a.packCancel != nil {
+		a.packCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.packCancel = cancel
+	items := make(map[string]*systray.MenuItem, len(a.packItems))
 	for name, item := range a.packItems {
-		packItems[name] = item
+		items[name] = item
 	}
-	openPacksItem := a.openPacksItem
-	reloadItem := a.reloadItem
-	animItem := a.animItem
-	loginItem := a.loginItem
-	a.mu.RUnlock()
+	a.mu.Unlock()
 
-	for name, item := range packItems {
-		select {
-		case <-item.ClickedCh:
-			a.selectPack(name)
-		default:
-		}
-	}
-	if openPacksItem != nil {
-		select {
-		case <-openPacksItem.ClickedCh:
-			if err := packs.OpenPacksFolder(a.store.PacksDir()); err != nil {
-				log.Printf("open packs folder: %v", err)
+	for name, item := range items {
+		name, item := name, item
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-item.ClickedCh:
+					a.selectPack(name)
+				}
 			}
-		default:
-		}
+		}()
 	}
-	if reloadItem != nil {
-		select {
-		case <-reloadItem.ClickedCh:
-			a.handleReloadPacks()
-		default:
-		}
-	}
-	if animItem != nil {
-		select {
-		case <-animItem.ClickedCh:
-			a.toggleAnimations()
-		default:
-		}
-	}
-	if loginItem != nil {
-		select {
-		case <-loginItem.ClickedCh:
-			a.toggleLaunchAtLogin()
-		default:
-		}
+}
+
+func (a *App) openPacksFolder() {
+	if err := packs.OpenPacksFolder(a.store.PacksDir()); err != nil {
+		log.Printf("open packs folder: %v", err)
 	}
 }
 
@@ -262,6 +260,8 @@ func (a *App) handleReloadPacks() {
 
 func (a *App) updatePackChecks() {
 	cfg := a.getSettings()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	for name, item := range a.packItems {
 		if name == cfg.SelectedPack {
 			item.Check()
