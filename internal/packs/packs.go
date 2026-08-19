@@ -97,9 +97,10 @@ func moodFromPack(p *Pack, m mood.Mood) MoodAssets {
 
 // Catalog holds the Default pack and discovered user packs.
 type Catalog struct {
-	Default   *Pack
-	User      map[string]*Pack
-	PacksDir  string
+	Default  *Pack
+	User     map[string]*Pack
+	Entries  []Entry // sorted user pack folders, including invalid ones
+	PacksDir string
 	loadIcons func([]byte) ([]byte, error)
 }
 
@@ -107,6 +108,7 @@ type Catalog struct {
 func NewCatalog(packsDir string, prepare func([]byte) ([]byte, error)) *Catalog {
 	return &Catalog{
 		User:      make(map[string]*Pack),
+		Entries:   nil,
 		PacksDir:  packsDir,
 		loadIcons: prepare,
 	}
@@ -124,22 +126,39 @@ func (c *Catalog) Reload(defaultLoader func() (*Pack, error)) error {
 	c.Default = def
 
 	user := make(map[string]*Pack)
+	var entries []Entry
 	names, err := ListUserPackNames(c.PacksDir)
 	if err != nil {
 		return err
 	}
 	for _, name := range names {
-		p, err := LoadFromDir(filepath.Join(c.PacksDir, name), name, c.loadIcons)
+		dir := filepath.Join(c.PacksDir, name)
+		if err := ValidateLayout(dir); err != nil {
+			entries = append(entries, Entry{
+				Name:   name,
+				Err:    err,
+				Reason: err.Error(),
+			})
+			continue
+		}
+		p, err := LoadFromDir(dir, name, c.loadIcons)
 		if err != nil {
-			continue // skip malformed user packs
+			entries = append(entries, Entry{
+				Name:   name,
+				Err:    err,
+				Reason: err.Error(),
+			})
+			continue
 		}
 		user[name] = p
+		entries = append(entries, Entry{Name: name, Pack: p})
 	}
 	c.User = user
+	c.Entries = entries
 	return nil
 }
 
-// Selected returns the named pack, or nil for Default-only selection.
+// Selected returns the named pack, or nil for Default-only selection / invalid packs.
 func (c *Catalog) Selected(name string) *Pack {
 	if name == "" || name == "Default" {
 		return nil
@@ -147,7 +166,7 @@ func (c *Catalog) Selected(name string) *Pack {
 	return c.User[name]
 }
 
-// UserNames returns sorted user pack folder names.
+// UserNames returns sorted valid user pack names.
 func (c *Catalog) UserNames() []string {
 	names := make([]string, 0, len(c.User))
 	for n := range c.User {

@@ -1,10 +1,7 @@
 package startup_test
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/jlnesc/gophertchi/internal/startup"
@@ -18,17 +15,11 @@ func TestSupportedOnlyInsideAppBundle(t *testing.T) {
 		return
 	}
 
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	// go test binaries are not inside a .app bundle.
+	if startup.Supported() {
+		t.Fatal("Supported must be false under go test / go run")
 	}
-	exe, err = filepath.EvalSymlinks(exe)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	inApp := strings.Contains(exe, ".app/Contents/MacOS/")
-	if got := startup.Supported(); got != inApp {
-		t.Fatalf("Supported() = %v, inAppBundle = %v (exe=%s)", got, inApp, exe)
+	if startup.CurrentStatus() != startup.StatusUnsupported {
+		t.Fatalf("CurrentStatus = %s, want unsupported", startup.CurrentStatus())
 	}
 }

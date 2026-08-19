@@ -6,6 +6,9 @@ require (
 	github.com/getlantern/systray v1.2.2
 	github.com/shirou/gopsutil/v4 v4.25.1
 )
+
+replace github.com/getlantern/systray => ./third_party/systray
+
 require (
 	github.com/ebitengine/purego v0.8.2 // indirect
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect

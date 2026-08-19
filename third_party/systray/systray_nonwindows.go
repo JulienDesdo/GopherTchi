@@ -73,6 +73,14 @@ func addSeparator(id uint32) {
 	C.add_separator(C.int(id))
 }
 
+func addSubMenuSeparator(parentID uint32) {
+	C.add_submenu_separator(C.int(parentID))
+}
+
+func clearSubMenu(parentID uint32) {
+	C.clear_submenu(C.int(parentID))
+}
+
 func hideMenuItem(item *MenuItem) {
 	C.hide_menu_item(
 		C.int(item.id),

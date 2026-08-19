@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -929,6 +930,19 @@ func addSeparator(id uint32) {
 		log.Errorf("Unable to addSeparator: %v", err)
 		return
 	}
+}
+
+func addSubMenuSeparator(parentID uint32) {
+	id := atomic.AddUint32(&currentID, 1)
+	err := wt.addSeparatorMenuItem(id, parentID)
+	if err != nil {
+		log.Errorf("Unable to addSubMenuSeparator: %v", err)
+		return
+	}
+}
+
+func clearSubMenu(parentID uint32) {
+	// Not implemented on Windows for GopherTchi (macOS menu bar app).
 }
 
 func hideMenuItem(item *MenuItem) {

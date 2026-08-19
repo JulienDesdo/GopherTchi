@@ -136,6 +136,16 @@ func AddSeparator() {
 	addSeparator(atomic.AddUint32(&currentID, 1))
 }
 
+// AddSubMenuSeparator adds a separator bar to this item's submenu.
+func (item *MenuItem) AddSubMenuSeparator() {
+	addSubMenuSeparator(item.id)
+}
+
+// ClearSubMenu removes all items from this item's submenu.
+func (item *MenuItem) ClearSubMenu() {
+	clearSubMenu(item.id)
+}
+
 // AddSubMenuItem adds a nested sub-menu item with the designated title and tooltip.
 // It can be safely invoked from different goroutines.
 // Created menu items are checkable on Windows and OSX by default. For Linux you have to use AddSubMenuItemCheckbox

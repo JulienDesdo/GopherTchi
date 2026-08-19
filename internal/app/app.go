@@ -37,12 +37,14 @@ type App struct {
 
 	packMenu      *systray.MenuItem
 	packItems     map[string]*systray.MenuItem
+	invalidItems  []*systray.MenuItem
 	openPacksItem *systray.MenuItem
 	reloadItem    *systray.MenuItem
 	animItem      *systray.MenuItem
 	loginItem     *systray.MenuItem
 
 	packCancel context.CancelFunc
+	actionCancel context.CancelFunc
 }
 
 // New prepares configuration, packs, and runtime state.
@@ -101,17 +103,14 @@ func (a *App) OnReady() {
 	settingsMenu := systray.AddMenuItem("Settings", "GopherTchi settings")
 	cfg := a.getSettings()
 	a.animItem = settingsMenu.AddSubMenuItemCheckbox("Animations", "Animate Gopher sprites when available", cfg.Animations)
-	a.loginItem = settingsMenu.AddSubMenuItemCheckbox("Launch at Login", "Start GopherTchi when you log in", cfg.LaunchAtLogin)
-	if !startup.Supported() {
-		a.loginItem.Disable()
-		a.loginItem.Uncheck()
-	}
+	a.loginItem = settingsMenu.AddSubMenuItemCheckbox("Launch at Login", "Start GopherTchi when you log in", false)
+	a.applyLoginMenuState()
 	systray.AddSeparator()
 
 	quitItem := systray.AddMenuItem("Quit", "Exit GopherTchi")
 
 	a.refreshIcon(a.getMood())
-	a.startMenuHandlers()
+	a.startFixedMenuHandlers()
 
 	go a.runAnimationLoop()
 	go a.pollMetrics(cpuItem, ramItem, diskItem, moodItem)
@@ -151,36 +150,50 @@ func (a *App) reloadCatalog() error {
 
 func (a *App) rebuildPackMenu() {
 	a.mu.Lock()
-	for _, item := range a.packItems {
-		item.Hide()
+	if a.packCancel != nil {
+		a.packCancel()
+		a.packCancel = nil
 	}
+	if a.actionCancel != nil {
+		a.actionCancel()
+		a.actionCancel = nil
+	}
+	a.packMenu.ClearSubMenu()
 	a.packItems = make(map[string]*systray.MenuItem)
+	a.invalidItems = nil
 
 	cfg := a.settings
 	defaultItem := a.packMenu.AddSubMenuItemCheckbox("Default", "Built-in Gopher pack", cfg.SelectedPack == config.DefaultPackName)
 	a.packItems[config.DefaultPackName] = defaultItem
 
-	for _, name := range a.catalog.UserNames() {
-		item := a.packMenu.AddSubMenuItemCheckbox(name, "User Gopher pack", cfg.SelectedPack == name)
-		a.packItems[name] = item
+	for _, entry := range a.catalog.Entries {
+		if entry.Valid() {
+			item := a.packMenu.AddSubMenuItemCheckbox(entry.Name, "User Gopher pack", cfg.SelectedPack == entry.Name)
+			a.packItems[entry.Name] = item
+			continue
+		}
+		label := entry.Name + " (invalid)"
+		tip := entry.Reason
+		if tip == "" {
+			tip = "Invalid Gopher Pack layout"
+		}
+		item := a.packMenu.AddSubMenuItem(label, tip)
+		item.Disable()
+		a.invalidItems = append(a.invalidItems, item)
 	}
 
-	if a.openPacksItem == nil {
-		a.openPacksItem = a.packMenu.AddSubMenuItem("Open Packs Folder", "Open ~/Library/Application Support/GopherTchi/packs")
-		a.reloadItem = a.packMenu.AddSubMenuItem("Reload Packs", "Rescan and reload pack assets")
-	}
+	a.packMenu.AddSubMenuSeparator()
+	a.openPacksItem = a.packMenu.AddSubMenuItem("Open Packs Folder", "Open ~/Library/Application Support/GopherTchi/packs")
+	a.reloadItem = a.packMenu.AddSubMenuItem("Reload Packs", "Rescan and reload pack assets")
 	a.mu.Unlock()
 
 	a.startPackWatchers()
+	a.startActionWatchers()
 }
 
-// startMenuHandlers launches blocking ClickedCh listeners for fixed menu items.
-func (a *App) startMenuHandlers() {
+func (a *App) startFixedMenuHandlers() {
 	go a.watchClicks(a.animItem, a.toggleAnimations)
 	go a.watchClicks(a.loginItem, a.toggleLaunchAtLogin)
-	go a.watchClicks(a.openPacksItem, a.openPacksFolder)
-	go a.watchClicks(a.reloadItem, a.handleReloadPacks)
-	a.startPackWatchers()
 }
 
 func (a *App) watchClicks(item *systray.MenuItem, handler func()) {
@@ -192,7 +205,6 @@ func (a *App) watchClicks(item *systray.MenuItem, handler func()) {
 	}
 }
 
-// startPackWatchers cancels previous pack listeners and blocks on the current pack items.
 func (a *App) startPackWatchers() {
 	a.mu.Lock()
 	if a.packCancel != nil {
@@ -221,6 +233,43 @@ func (a *App) startPackWatchers() {
 	}
 }
 
+func (a *App) startActionWatchers() {
+	a.mu.Lock()
+	if a.actionCancel != nil {
+		a.actionCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.actionCancel = cancel
+	openItem := a.openPacksItem
+	reloadItem := a.reloadItem
+	a.mu.Unlock()
+
+	if openItem != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-openItem.ClickedCh:
+					a.openPacksFolder()
+				}
+			}
+		}()
+	}
+	if reloadItem != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-reloadItem.ClickedCh:
+					a.handleReloadPacks()
+				}
+			}
+		}()
+	}
+}
+
 func (a *App) openPacksFolder() {
 	if err := packs.OpenPacksFolder(a.store.PacksDir()); err != nil {
 		log.Printf("open packs folder: %v", err)
@@ -228,6 +277,10 @@ func (a *App) openPacksFolder() {
 }
 
 func (a *App) selectPack(name string) {
+	if name != config.DefaultPackName && a.catalog.Selected(name) == nil {
+		a.updatePackChecks()
+		return
+	}
 	cfg := a.getSettings()
 	if cfg.SelectedPack == name {
 		a.updatePackChecks()
@@ -247,7 +300,6 @@ func (a *App) handleReloadPacks() {
 		log.Printf("reload packs: %v", err)
 		return
 	}
-	// If the previously selected user pack disappeared, fall back to Default.
 	cfg := a.getSettings()
 	if cfg.SelectedPack != config.DefaultPackName && a.catalog.Selected(cfg.SelectedPack) == nil {
 		cfg.SelectedPack = config.DefaultPackName
@@ -288,36 +340,33 @@ func (a *App) toggleAnimations() {
 
 func (a *App) toggleLaunchAtLogin() {
 	if !startup.Supported() {
-		a.loginItem.Uncheck()
+		a.applyLoginMenuState()
 		return
 	}
-	cfg := a.getSettings()
-	desired := !cfg.LaunchAtLogin
+
+	desired := startup.CurrentStatus() != startup.StatusEnabled
 	if err := startup.SetEnabled(desired); err != nil {
 		log.Printf("launch at login: %v", err)
-		a.syncLoginCheck()
-		return
 	}
-	cfg.LaunchAtLogin = desired
+
+	cfg := a.getSettings()
+	cfg.LaunchAtLogin = startup.Enabled()
 	a.setSettings(cfg)
-	if desired {
-		a.loginItem.Check()
-	} else {
-		a.loginItem.Uncheck()
-	}
-	if err := a.store.Save(cfg); err != nil {
-		log.Printf("save config: %v", err)
-	}
+	_ = a.store.Save(cfg)
+	a.applyLoginMenuState()
 }
 
 func (a *App) syncLaunchAtLogin() {
-	cfg := a.getSettings()
 	if !startup.Supported() {
+		cfg := a.getSettings()
 		cfg.LaunchAtLogin = false
 		a.setSettings(cfg)
 		return
 	}
-	if cfg.LaunchAtLogin && !startup.Enabled() {
+
+	cfg := a.getSettings()
+	st := startup.CurrentStatus()
+	if cfg.LaunchAtLogin && st == startup.StatusNotRegistered {
 		if err := startup.SetEnabled(true); err != nil {
 			log.Printf("restore launch at login: %v", err)
 			cfg.LaunchAtLogin = false
@@ -325,17 +374,42 @@ func (a *App) syncLaunchAtLogin() {
 			_ = a.store.Save(cfg)
 		}
 	}
-	if !cfg.LaunchAtLogin && startup.Enabled() {
-		_ = startup.SetEnabled(false)
+	if !cfg.LaunchAtLogin && st == startup.StatusEnabled {
+		if err := startup.SetEnabled(false); err != nil {
+			log.Printf("clear launch at login: %v", err)
+		}
 	}
+
+	cfg = a.getSettings()
+	cfg.LaunchAtLogin = startup.Enabled()
+	a.setSettings(cfg)
 }
 
-func (a *App) syncLoginCheck() {
-	cfg := a.getSettings()
-	if cfg.LaunchAtLogin && startup.Supported() {
-		a.loginItem.Check()
-	} else {
+func (a *App) applyLoginMenuState() {
+	if a.loginItem == nil {
+		return
+	}
+	if !startup.Supported() {
+		a.loginItem.Disable()
 		a.loginItem.Uncheck()
+		a.loginItem.SetTooltip("Available only when running GopherTchi.app")
+		return
+	}
+
+	a.loginItem.Enable()
+	switch startup.CurrentStatus() {
+	case startup.StatusEnabled:
+		a.loginItem.Check()
+		a.loginItem.SetTooltip("GopherTchi launches at login")
+	case startup.StatusRequiresApproval:
+		a.loginItem.Uncheck()
+		a.loginItem.SetTooltip("Requires approval in System Settings → General → Login Items")
+	case startup.StatusNotFound, startup.StatusError:
+		a.loginItem.Uncheck()
+		a.loginItem.SetTooltip("Launch at Login is temporarily unavailable")
+	default:
+		a.loginItem.Uncheck()
+		a.loginItem.SetTooltip("Start GopherTchi when you log in")
 	}
 }
 

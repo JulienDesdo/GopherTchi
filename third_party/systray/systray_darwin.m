@@ -175,6 +175,29 @@ NSMenuItem *find_menu_item(NSMenu *ourMenu, NSNumber *menuId) {
   [menu addItem: [NSMenuItem separatorItem]];
 }
 
+- (void) add_submenu_separator:(NSNumber*) parentMenuId
+{
+  NSMenuItem *parentItem = find_menu_item(menu, parentMenuId);
+  if (parentItem == NULL) {
+    return;
+  }
+  if (!parentItem.hasSubmenu) {
+    NSMenu *submenu = [[NSMenu alloc] init];
+    [submenu setAutoenablesItems:NO];
+    [parentItem setSubmenu:submenu];
+  }
+  [parentItem.submenu addItem:[NSMenuItem separatorItem]];
+}
+
+- (void) clear_submenu:(NSNumber*) parentMenuId
+{
+  NSMenuItem *parentItem = find_menu_item(menu, parentMenuId);
+  if (parentItem == NULL || !parentItem.hasSubmenu) {
+    return;
+  }
+  [parentItem.submenu removeAllItems];
+}
+
 - (void) hide_menu_item:(NSNumber*) menuId
 {
   NSMenuItem* menuItem = find_menu_item(menu, menuId);
@@ -287,6 +310,16 @@ void add_or_update_menu_item(int menuId, int parentMenuId, char* title, char* to
 void add_separator(int menuId) {
   NSNumber *mId = [NSNumber numberWithInt:menuId];
   runInMainThread(@selector(add_separator:), (id)mId);
+}
+
+void add_submenu_separator(int parentMenuId) {
+  NSNumber *mId = [NSNumber numberWithInt:parentMenuId];
+  runInMainThread(@selector(add_submenu_separator:), (id)mId);
+}
+
+void clear_submenu(int parentMenuId) {
+  NSNumber *mId = [NSNumber numberWithInt:parentMenuId];
+  runInMainThread(@selector(clear_submenu:), (id)mId);
 }
 
 void hide_menu_item(int menuId) {
