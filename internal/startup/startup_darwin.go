@@ -105,6 +105,16 @@ func SetEnabled(enable bool) error {
 	return nil
 }
 
+// OpenSystemSettingsLoginItems opens macOS Login Items settings.
+func OpenSystemSettingsLoginItems() error {
+	migrateLegacyLaunchAgent()
+	if !Supported() {
+		return ErrUnavailable
+	}
+	C.gophertchi_login_open_settings()
+	return nil
+}
+
 // migrateLegacyLaunchAgent removes the old LaunchAgent used before SMAppService.
 func migrateLegacyLaunchAgent() {
 	migrateOnce.Do(func() {

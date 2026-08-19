@@ -144,6 +144,18 @@ func (item *MenuItem) AddSubMenuSeparator() {
 // ClearSubMenu removes all items from this item's submenu.
 func (item *MenuItem) ClearSubMenu() {
 	clearSubMenu(item.id)
+	removeChildMenuItems(item.id)
+}
+
+// removeChildMenuItems drops Go-side registry entries for direct children of parentID.
+func removeChildMenuItems(parentID uint32) {
+	menuItemsLock.Lock()
+	defer menuItemsLock.Unlock()
+	for id, it := range menuItems {
+		if it.parent != nil && it.parent.id == parentID {
+			delete(menuItems, id)
+		}
+	}
 }
 
 // AddSubMenuItem adds a nested sub-menu item with the designated title and tooltip.

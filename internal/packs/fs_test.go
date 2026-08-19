@@ -68,23 +68,18 @@ func TestMalformedRootPNG(t *testing.T) {
 	}
 }
 
-func TestEmptyPackIsValidPartial(t *testing.T) {
+func TestEmptyPackIsInvalid(t *testing.T) {
 	root := t.TempDir()
 	packDir := filepath.Join(root, "Empty")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := packs.ValidateLayout(packDir); err != nil {
-		t.Fatalf("empty pack should be valid: %v", err)
+	err := packs.ValidateLayout(packDir)
+	if err == nil {
+		t.Fatal("empty pack should be invalid")
 	}
-	p, err := packs.LoadFromDir(packDir, "Empty", identityPrepare)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range packs.AllMoods() {
-		if p.Moods[m].HasRepresentation() {
-			t.Fatalf("empty pack should have no assets for %s", m)
-		}
+	if !strings.Contains(err.Error(), "no usable assets") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

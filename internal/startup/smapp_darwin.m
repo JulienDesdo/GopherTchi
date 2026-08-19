@@ -80,3 +80,9 @@ bool gophertchi_login_set(bool enable, char **error_message) {
 void gophertchi_login_free(char *p) {
 	free(p);
 }
+
+void gophertchi_login_open_settings(void) {
+	if (@available(macOS 13.0, *)) {
+		[SMAppService openSystemSettingsLoginItems];
+	}
+}

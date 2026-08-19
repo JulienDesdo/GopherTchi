@@ -15,6 +15,7 @@ enum {
 bool gophertchi_login_supported(void);
 int gophertchi_login_status(void);
 bool gophertchi_login_set(bool enable, char **error_message);
+void gophertchi_login_open_settings(void);
 void gophertchi_login_free(char *p);
 
 #endif

@@ -47,3 +47,6 @@ func Enabled() bool { return false }
 
 // SetEnabled is a no-op outside macOS.
 func SetEnabled(enable bool) error { return ErrUnavailable }
+
+// OpenSystemSettingsLoginItems is unavailable outside macOS.
+func OpenSystemSettingsLoginItems() error { return ErrUnavailable }

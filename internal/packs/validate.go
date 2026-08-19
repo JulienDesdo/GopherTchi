@@ -21,8 +21,8 @@ func (e Entry) Valid() bool {
 }
 
 // ValidateLayout checks that a pack directory uses icons/ and sprites/ correctly.
-// Partial packs (including empty ones) are valid. Root-level mood PNGs or mood
-// folders are malformed.
+// Partial packs are valid when they contain at least one recognized icon or sprite.
+// Empty folders (or only ignored/unknown files) are invalid.
 func ValidateLayout(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -60,7 +60,40 @@ func ValidateLayout(dir string) error {
 	if err := validateIconsLayout(filepath.Join(dir, "icons")); err != nil {
 		return err
 	}
+	if !hasRecognizedAssets(dir) {
+		return fmt.Errorf("no usable assets: pack needs at least one recognized icon or sprite")
+	}
 	return nil
+}
+
+func hasRecognizedAssets(dir string) bool {
+	iconsDir := filepath.Join(dir, "icons")
+	if files, err := listPNGFiles(iconsDir); err == nil {
+		for _, fn := range files {
+			if _, ok := moodByFileName(fn); ok {
+				return true
+			}
+		}
+	}
+
+	spritesDir := filepath.Join(dir, "sprites")
+	entries, err := os.ReadDir(spritesDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() || shouldIgnorePackFile(e.Name()) {
+			continue
+		}
+		if _, ok := moodByFolderName(e.Name()); !ok {
+			continue
+		}
+		files, err := listPNGFiles(filepath.Join(spritesDir, e.Name()))
+		if err == nil && len(files) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func validateIconsLayout(iconsDir string) error {

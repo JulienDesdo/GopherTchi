@@ -344,9 +344,20 @@ func (a *App) toggleLaunchAtLogin() {
 		return
 	}
 
-	desired := startup.CurrentStatus() != startup.StatusEnabled
-	if err := startup.SetEnabled(desired); err != nil {
-		log.Printf("launch at login: %v", err)
+	st := startup.CurrentStatus()
+	switch st {
+	case startup.StatusRequiresApproval:
+		if err := startup.OpenSystemSettingsLoginItems(); err != nil {
+			log.Printf("open login items settings: %v", err)
+		}
+	case startup.StatusEnabled:
+		if err := startup.SetEnabled(false); err != nil {
+			log.Printf("launch at login: %v", err)
+		}
+	default:
+		if err := startup.SetEnabled(true); err != nil {
+			log.Printf("launch at login: %v", err)
+		}
 	}
 
 	cfg := a.getSettings()
@@ -357,31 +368,9 @@ func (a *App) toggleLaunchAtLogin() {
 }
 
 func (a *App) syncLaunchAtLogin() {
-	if !startup.Supported() {
-		cfg := a.getSettings()
-		cfg.LaunchAtLogin = false
-		a.setSettings(cfg)
-		return
-	}
-
+	// SMAppService.status is authoritative. Never register/unregister from config.
 	cfg := a.getSettings()
-	st := startup.CurrentStatus()
-	if cfg.LaunchAtLogin && st == startup.StatusNotRegistered {
-		if err := startup.SetEnabled(true); err != nil {
-			log.Printf("restore launch at login: %v", err)
-			cfg.LaunchAtLogin = false
-			a.setSettings(cfg)
-			_ = a.store.Save(cfg)
-		}
-	}
-	if !cfg.LaunchAtLogin && st == startup.StatusEnabled {
-		if err := startup.SetEnabled(false); err != nil {
-			log.Printf("clear launch at login: %v", err)
-		}
-	}
-
-	cfg = a.getSettings()
-	cfg.LaunchAtLogin = startup.Enabled()
+	cfg.LaunchAtLogin = startup.Supported() && startup.Enabled()
 	a.setSettings(cfg)
 }
 
