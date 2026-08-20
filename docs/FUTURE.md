@@ -18,4 +18,8 @@ A working product can always be pushed further. This file keeps potentially usef
 
 - **More README visuals** — add a few screenshots or animations once the final UI and built-in sprites are settled.
 
+- **Continuous integration** — add GitHub Actions to automatically run tests and builds on pushes and pull requests instead of relying only on local validation.
 
+- **Local systray fork maintenance** — the vendored `systray` fork solves real macOS-specific needs, but it also becomes part of GopherTchi's maintenance surface. Keep track of upstream fixes and minimize divergence where practical.
+
+- **Production-oriented robustness** — as the project grows, consider whether additional logging, diagnostics, failure recovery, compatibility testing or performance checks become useful. These should be added only when the application's complexity actually justifies them.
