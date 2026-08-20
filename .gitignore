@@ -1,3 +1,7 @@
 # Untracked files
 .DS_Store
-third_party/systray/
+.idea/
+dist/
+*.app
+/gophertchi
+/GopherTchi

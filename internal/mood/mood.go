@@ -77,12 +77,13 @@ func DefaultThresholds() Thresholds {
 
 // Evaluator maps metrics to moods with hysteresis and dwell-time smoothing.
 type Evaluator struct {
-	Thresholds   Thresholds
-	DwellTime    time.Duration // minimum time a candidate mood must hold before switching
-	current      Mood
-	candidate    Mood
+	Thresholds     Thresholds
+	DwellTime      time.Duration // minimum time a candidate mood must hold before switching
+	now            func() time.Time
+	current        Mood
+	candidate      Mood
 	candidateSince time.Time
-	lastChange   time.Time
+	lastChange     time.Time
 }
 
 // DefaultEvaluator returns an Evaluator ready for use.
@@ -91,11 +92,21 @@ func DefaultEvaluator() *Evaluator {
 	return &Evaluator{
 		Thresholds:     DefaultThresholds(),
 		DwellTime:      6 * time.Second,
+		now:            time.Now,
 		current:        Happy,
 		candidate:      Happy,
 		candidateSince: now,
 		lastChange:     now,
 	}
+}
+
+// SetClock overrides the time source (useful in tests).
+func (e *Evaluator) SetClock(now func() time.Time) {
+	if now == nil {
+		e.now = time.Now
+		return
+	}
+	e.now = now
 }
 
 // Current returns the stable mood after hysteresis.
@@ -106,7 +117,11 @@ func (e *Evaluator) Current() Mood {
 // Update processes a new metrics snapshot and returns the (possibly unchanged) mood.
 func (e *Evaluator) Update(s metrics.Snapshot) Mood {
 	raw := e.evaluateRaw(s, e.current)
-	now := time.Now()
+	nowFn := e.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn()
 
 	if raw == e.current {
 		e.candidate = e.current

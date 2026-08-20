@@ -1,0 +1,7 @@
+Place optional Default pack sprite frames here:
+
+  assets/sprites/<Mood>/00.png
+  assets/sprites/<Mood>/01.png
+  ...
+
+If a mood has no sprites, GopherTchi uses assets/icons/<Mood>.png.
