@@ -1,12 +1,12 @@
 package packs_test
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jlnesc/gophertchi/internal/mood"
@@ -33,7 +33,7 @@ func writeTinyPNG(t *testing.T, path string) {
 
 func identityPrepare(b []byte) ([]byte, error) { return b, nil }
 
-func TestLoadValidPartialPack(t *testing.T) {
+func TestValidPartialPack(t *testing.T) {
 	root := t.TempDir()
 	packDir := filepath.Join(root, "Partial")
 	writeTinyPNG(t, filepath.Join(packDir, "icons", "Happy.png"))
@@ -52,23 +52,32 @@ func TestLoadValidPartialPack(t *testing.T) {
 	if p.Moods[mood.Tired].HasRepresentation() {
 		t.Fatal("Tired should be absent in partial pack")
 	}
+
+	entry := packs.Entry{Name: "Partial", Pack: p}
+	if !entry.Valid() || entry.MenuLabel() != "Partial" {
+		t.Fatalf("menu label = %q", entry.MenuLabel())
+	}
 }
 
-func TestMalformedRootPNG(t *testing.T) {
+func TestRecognizedRootPNGIsInvalid(t *testing.T) {
 	root := t.TempDir()
 	packDir := filepath.Join(root, "Colors")
-	writeTinyPNG(t, filepath.Join(packDir, "Tired.png"))
+	writeTinyPNG(t, filepath.Join(packDir, "Hungry.png"))
 
 	err := packs.ValidateLayout(packDir)
 	if err == nil {
 		t.Fatal("expected malformed layout error")
 	}
-	if got := err.Error(); got == "" || !containsAll(got, "Tired.png", "icons/") {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, packs.ErrMalformed) {
+		t.Fatalf("got %v, want ErrMalformed", err)
+	}
+	entry := packs.Entry{Name: "Colors", Err: err, Reason: err.Error()}
+	if entry.Empty() || entry.MenuLabel() != "Colors (invalid)" {
+		t.Fatalf("menu label = %q", entry.MenuLabel())
 	}
 }
 
-func TestEmptyPackIsInvalid(t *testing.T) {
+func TestEmptyDirectoryIsEmpty(t *testing.T) {
 	root := t.TempDir()
 	packDir := filepath.Join(root, "Empty")
 	if err := os.MkdirAll(packDir, 0o755); err != nil {
@@ -76,10 +85,44 @@ func TestEmptyPackIsInvalid(t *testing.T) {
 	}
 	err := packs.ValidateLayout(packDir)
 	if err == nil {
-		t.Fatal("empty pack should be invalid")
+		t.Fatal("empty pack should be ErrEmpty")
 	}
-	if !strings.Contains(err.Error(), "no usable assets") {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, packs.ErrEmpty) {
+		t.Fatalf("got %v, want ErrEmpty", err)
+	}
+	entry := packs.Entry{Name: "Empty", Err: err, Reason: err.Error()}
+	if !entry.Empty() || entry.MenuLabel() != "Empty (empty)" {
+		t.Fatalf("menu label = %q", entry.MenuLabel())
+	}
+}
+
+func TestUnknownContentOnlyIsEmpty(t *testing.T) {
+	root := t.TempDir()
+	packDir := filepath.Join(root, "MyPack")
+	if err := os.MkdirAll(filepath.Join(packDir, "icons"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(packDir, "nothing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "nothing", "notes.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "readme.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeTinyPNG(t, filepath.Join(packDir, "logo.png")) // unknown PNG name, tolerated
+
+	err := packs.ValidateLayout(packDir)
+	if err == nil {
+		t.Fatal("expected ErrEmpty")
+	}
+	if !errors.Is(err, packs.ErrEmpty) {
+		t.Fatalf("got %v, want ErrEmpty", err)
+	}
+	entry := packs.Entry{Name: "MyPack", Err: err}
+	if entry.MenuLabel() != "MyPack (empty)" {
+		t.Fatalf("menu label = %q", entry.MenuLabel())
 	}
 }
 
@@ -106,10 +149,13 @@ func TestValidPackWithDSStore(t *testing.T) {
 	}
 }
 
-func TestCatalogReportsInvalidPack(t *testing.T) {
+func TestCatalogReportsEmptyAndInvalid(t *testing.T) {
 	root := t.TempDir()
 	writeTinyPNG(t, filepath.Join(root, "Bad", "Hungry.png"))
 	writeTinyPNG(t, filepath.Join(root, "Good", "icons", "Happy.png"))
+	if err := os.MkdirAll(filepath.Join(root, "Empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	c := packs.NewCatalog(root, identityPrepare)
 	def := &packs.Pack{Name: "Default", Moods: map[mood.Mood]packs.MoodAssets{}}
@@ -120,37 +166,26 @@ func TestCatalogReportsInvalidPack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(c.Entries) != 2 {
-		t.Fatalf("entries = %d, want 2", len(c.Entries))
+	if len(c.Entries) != 3 {
+		t.Fatalf("entries = %d, want 3", len(c.Entries))
 	}
-	var sawBad, sawGood bool
 	for _, e := range c.Entries {
 		switch e.Name {
 		case "Bad":
-			sawBad = true
-			if e.Valid() {
-				t.Fatal("Bad pack should be invalid")
+			if e.Valid() || e.Empty() || e.MenuLabel() != "Bad (invalid)" {
+				t.Fatalf("Bad entry: valid=%v empty=%v label=%q err=%v", e.Valid(), e.Empty(), e.MenuLabel(), e.Err)
+			}
+		case "Empty":
+			if e.Valid() || !e.Empty() || e.MenuLabel() != "Empty (empty)" {
+				t.Fatalf("Empty entry: valid=%v empty=%v label=%q err=%v", e.Valid(), e.Empty(), e.MenuLabel(), e.Err)
 			}
 		case "Good":
-			sawGood = true
 			if !e.Valid() {
 				t.Fatalf("Good pack invalid: %v", e.Err)
 			}
 		}
 	}
-	if !sawBad || !sawGood {
-		t.Fatalf("missing entries: %+v", c.Entries)
+	if c.Selected("Bad") != nil || c.Selected("Empty") != nil {
+		t.Fatal("unusable packs must not be selectable")
 	}
-	if c.Selected("Bad") != nil {
-		t.Fatal("invalid pack must not be selectable")
-	}
-}
-
-func containsAll(s string, parts ...string) bool {
-	for _, p := range parts {
-		if !strings.Contains(s, p) {
-			return false
-		}
-	}
-	return true
 }

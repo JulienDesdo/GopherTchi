@@ -43,7 +43,7 @@ type App struct {
 	animItem      *systray.MenuItem
 	loginItem     *systray.MenuItem
 
-	packCancel context.CancelFunc
+	packCancel   context.CancelFunc
 	actionCancel context.CancelFunc
 }
 
@@ -172,12 +172,7 @@ func (a *App) rebuildPackMenu() {
 			a.packItems[entry.Name] = item
 			continue
 		}
-		label := entry.Name + " (invalid)"
-		tip := entry.Reason
-		if tip == "" {
-			tip = "Invalid Gopher Pack layout"
-		}
-		item := a.packMenu.AddSubMenuItem(label, tip)
+		item := a.packMenu.AddSubMenuItem(entry.MenuLabel(), entry.MenuTooltip())
 		item.Disable()
 		a.invalidItems = append(a.invalidItems, item)
 	}

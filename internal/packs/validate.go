@@ -1,13 +1,22 @@
 package packs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// Entry is a discovered user pack, valid or invalid.
+// Sentinel validation results for unusable packs.
+var (
+	// ErrEmpty means the folder has no recognized usable Gopher assets.
+	ErrEmpty = errors.New("no usable assets")
+	// ErrMalformed means a recognized Gopher asset is in the wrong place.
+	ErrMalformed = errors.New("malformed pack layout")
+)
+
+// Entry is a discovered user pack, valid or unusable.
 type Entry struct {
 	Name   string
 	Pack   *Pack
@@ -20,9 +29,40 @@ func (e Entry) Valid() bool {
 	return e.Err == nil && e.Pack != nil
 }
 
+// Empty reports whether the pack has no recognized usable assets.
+func (e Entry) Empty() bool {
+	return errors.Is(e.Err, ErrEmpty)
+}
+
+// MenuLabel returns the submenu title for this entry.
+func (e Entry) MenuLabel() string {
+	if e.Valid() {
+		return e.Name
+	}
+	if e.Empty() {
+		return e.Name + " (empty)"
+	}
+	return e.Name + " (invalid)"
+}
+
+// MenuTooltip returns a short explanation for disabled entries.
+func (e Entry) MenuTooltip() string {
+	if e.Valid() {
+		return "User Gopher pack"
+	}
+	if e.Reason != "" {
+		return e.Reason
+	}
+	if e.Empty() {
+		return "No usable Gopher assets found"
+	}
+	return "Invalid Gopher Pack layout"
+}
+
 // ValidateLayout checks that a pack directory uses icons/ and sprites/ correctly.
 // Partial packs are valid when they contain at least one recognized icon or sprite.
-// Empty folders (or only ignored/unknown files) are invalid.
+// Folders with no recognized assets are empty (ErrEmpty). Recognized assets in the
+// wrong place are malformed (ErrMalformed). Unknown files/directories are ignored.
 func ValidateLayout(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -41,16 +81,18 @@ func ValidateLayout(dir string) error {
 				continue
 			}
 			if _, ok := moodByFolderName(name); ok {
-				return fmt.Errorf("malformed pack layout: mood folder %q must be under sprites/ (expected sprites/%s/), not at pack root", name, name)
+				return fmt.Errorf("%w: mood folder %q must be under sprites/ (expected sprites/%s/), not at pack root", ErrMalformed, name, name)
 			}
+			// Unknown directories are tolerated for future pack extensions.
 			continue
 		}
 
 		if strings.EqualFold(filepath.Ext(name), ".png") {
 			if _, ok := moodByFileName(name); ok {
-				return fmt.Errorf("malformed pack layout: %s should be at icons/%s, not at pack root", name, name)
+				return fmt.Errorf("%w: %s should be at icons/%s, not at pack root", ErrMalformed, name, name)
 			}
-			return fmt.Errorf("malformed pack layout: unexpected file %q at pack root (place icons in icons/)", name)
+			// Unknown PNGs at pack root are tolerated.
+			continue
 		}
 	}
 
@@ -61,7 +103,7 @@ func ValidateLayout(dir string) error {
 		return err
 	}
 	if !hasRecognizedAssets(dir) {
-		return fmt.Errorf("no usable assets: pack needs at least one recognized icon or sprite")
+		return fmt.Errorf("%w: pack needs at least one recognized icon or sprite", ErrEmpty)
 	}
 	return nil
 }
@@ -110,7 +152,7 @@ func validateIconsLayout(iconsDir string) error {
 			continue
 		}
 		if e.IsDir() {
-			return fmt.Errorf("malformed pack layout: unexpected directory icons/%s (icons must be PNG files)", name)
+			return fmt.Errorf("%w: unexpected directory icons/%s (icons must be PNG files)", ErrMalformed, name)
 		}
 	}
 	return nil
@@ -133,7 +175,7 @@ func validateSpritesLayout(spritesDir string) error {
 			if strings.EqualFold(filepath.Ext(name), ".png") {
 				if _, ok := moodByFileName(name); ok {
 					base := strings.TrimSuffix(name, filepath.Ext(name))
-					return fmt.Errorf("malformed pack layout: sprite frames for %s must be under sprites/%s/, not sprites/%s", base, base, name)
+					return fmt.Errorf("%w: sprite frames for %s must be under sprites/%s/, not sprites/%s", ErrMalformed, base, base, name)
 				}
 			}
 			continue

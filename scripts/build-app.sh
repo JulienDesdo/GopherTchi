@@ -9,6 +9,11 @@ CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 
+if [[ -e "$APP_DIR" ]]; then
+  echo "→ removing existing $APP_DIR"
+  rm -rf "$APP_DIR"
+fi
+
 mkdir -p "$MACOS" "$RESOURCES"
 
 echo "→ building $APP_NAME"
