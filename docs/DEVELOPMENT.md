@@ -280,7 +280,7 @@ This keeps filesystem and image-processing work out of the animation tick itself
 
 ## Why Reload Packs is manual
 
-GopherTchi does not run a filesystem watcher on the pack directory. The normal workflow is: 
+GopherTchi does not run a filesystem watcher on the pack directory.
 The normal workflow is:
 
 ```text
@@ -527,7 +527,7 @@ dist/
 
 The bundle's `Info.plist` also sets `LSUIElement`, which is appropriate for a menu-bar utility that does not need a normal Dock application interface.
 
-The current build script creates the required bundle directories and overwrites the binary, `Info.plist` and icon it needs. It does **not yet delete an existing `dist/GopherTchi.app` before rebuilding it**; that cleanup is still listed in the project's `To finish` notes.
+The build script removes any existing `dist/GopherTchi.app` before recreating the bundle, preventing stale generated files or resources from surviving between builds.
 
 ## Tests
 
@@ -537,32 +537,16 @@ The project uses normal Go tests and the full suite can be run with:
 go test ./...
 ```
 
-The tests cover the parts of the application that can be checked deterministically, including:
+The current tests cover:
 
-- mood transitions and priorities;
-- hysteresis and dwell behaviour;
-- animation behaviour and fallback;
+- mood transitions, priorities, hysteresis, dwell time and candidate reset;
+- animation frame cycling and static fallback;
 - configuration defaults;
-- Gopher Pack fallback;
-- filesystem-level pack validation using temporary directories and real PNG files;
-- basic startup support behaviour.
+- Gopher Pack resolution and fallback;
+- filesystem-level pack validation, including partial packs, empty packs, malformed layouts and ignored metadata;
+- the distinction between empty and invalid pack entries;
+- startup behaviour outside a macOS .app bundle.
 
-The filesystem tests are especially useful for the pack loader because they exercise real directory layouts such as:
+I focused on these areas because they contain most of the state transitions, fallback rules and filesystem edge cases in the application. They are easy to break without producing an obvious compilation error, and reproducing every case manually would quickly become tedious.
 
-```text
-Pack/icons/Happy.png
-```
-
-as well as malformed root-level mood files, empty packs and `.DS_Store`.
-
-Some behaviour still needs a real macOS session and a real application bundle to validate properly.
-
-Examples are:
-
-- the final menu-bar icon size;
-- the native submenu rendering;
-- Finder opening the pack directory;
-- `SMAppService` approval and Login Items behaviour;
-- the application icon and `.app` bundle behaviour.
-
-For these cases, the automated tests protect the surrounding Go logic and the remaining platform behaviour is checked manually from the generated `.app`.
+Native behaviour that depends on a real macOS session or application bundle is still checked manually, particularly menu-bar rendering, Finder integration and the real SMAppService registration and approval flow.
